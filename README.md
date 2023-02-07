@@ -8,11 +8,9 @@ Use at your own risk:
 
 You can play with my implemetation at:
 
-[ashersorensen.com/sign](ashersorensen.com/sign)
+ashersorensen.com/sign
 
-and
-
-[ashersorensen.com/sketch](ashersorensen.com/sketch)
+ashersorensen.com/sketch
 
 The sign endpoint is a troll ux form. The sketch endpoint will let you save your drawing
 
