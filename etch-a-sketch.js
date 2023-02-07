@@ -1,7 +1,7 @@
 export default class EtchASketch {
   STEP_SIZE_DEFAULT = 10
   CHANGE_IN_OPACITY_DEFAULT = 20
-  BATCH_TIME_DEFAULT = 15
+  BATCH_TIME_DEFAULT = 5
 
   HEIGHT_DEFAULT = 500
   WIDTH_DEFAULT = 800
@@ -15,7 +15,9 @@ export default class EtchASketch {
       left: this.decreaseLeft.bind(this), 
       up: this.decreaseRight.bind(this), 
       down: this.increaseRight.bind(this),
-      shake: this.shake.bind(this)
+      shake: this.shake.bind(this),
+      canvasWidth: width || this.WIDTH_DEFAULT,
+      canvasHeight: height || this.HEIGHT_DEFAULT
     })
 
     this.cursor = { 
@@ -128,10 +130,13 @@ class SketchView {
   static HEIGHT_TO_BORDER_RATIO = (1 / 7)
   static SHAKE_DISTANCE = 50
   static SHAKE_ANGLE = 20
+  static FINGER_GUIDE_RATIO = 2
 
-  constructor({ height, width, containerId, left, right, up, down, shake, action } = {}) {
+  constructor({ height, width, canvasHeight, canvasWidth, containerId, left, right, up, down, shake, action } = {}) {
     this.height = height || screen.height * .6
     this.width = width || screen.width * .9
+    this.canvasHeight = canvasHeight
+    this.canvasWidth = canvasWidth
     this.containerId = containerId || 'container'
     this.moveLocks = new Set()
 
@@ -187,15 +192,15 @@ class SketchView {
   build({ id = 'container', leftControlId = 'l_picker', rightControlId = 'r_picker', allowHotkeys = true } = {}) {
     if (allowHotkeys) this._setupHotkeys()
 
-    SketchView.createView()
+    SketchView.createView({ canvasWidth: this.canvasWidth, canvasHeight: this.canvasHeight })
 
     const container = document.getElementById(id)
     container.style['border-width'] = this.proportions.border + 'px ' + this.proportions.border + 'px ' + (1.2 * this.proportions.border) + 'px ' + this.proportions.border + 'px '
     container.style['height'] = this.proportions.height + 'px'
     container.style['width'] = this.proportions.width + 'px'
 
-    this.setupKnob(leftControlId, this.right, this.left)
-    this.setupKnob(rightControlId, this.up, this.down)
+    this._setupKnob(leftControlId, this.right, this.left)
+    this._setupKnob(rightControlId, this.up, this.down)
     this._setupBoard(id, leftControlId, rightControlId)
   }
 
@@ -203,7 +208,6 @@ class SketchView {
     const board = document.getElementById(id)
     const leftControl = document.getElementById(left)
     const rightControl = document.getElementById(right)
-    const center = centerOf(board)
     let start = null
     let shakePosition = null
     let shakeAngle = null
@@ -227,6 +231,7 @@ class SketchView {
     }
 
     const move = (event) => {
+      const center = centerOf(board)
       const coordinates = getCoordinates(event)
       if (coordinates.x === null || coordinates.y === null) return
       if (!shakePosition) shakePosition = getCoordinates(event)
@@ -263,36 +268,13 @@ class SketchView {
     board.addEventListener('touchstart', down)
   }
 
-  setupKnob(pickerId, increase, decrease, size = this.proportions.knob, moveControls = this.moveControls, includeTouchHelper = true) {
+  _setupKnob(pickerId, increase, decrease, includeTouchHelper = true) {
     const picker = document.getElementById(pickerId)
-    var startingAngle = 0
-    var trackingAngle = 0
-    var identifier = null
-    const center = centerOf(picker)
+    let startingAngle = 0
+    let trackingAngle = 0
+    let identifier = null
 
-    const transform = (function() {
-      var prefs = ['t', 'WebkitT', 'MozT', 'msT', 'OT'],
-        style = document.documentElement.style,
-        p
-      for (var i = 0, len = prefs.length; i < len; i++) {
-        if ((p = prefs[i] + 'ransform') in style) return p
-      }
-
-      alert('your browser doesnot support css transforms!')
-    })()
-
-    const rotate = (x, y) => {
-      const rect = document.getElementById(pickerId).getBoundingClientRect()
-      const center = {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2
-      }
-
-      var deltaX = center.x-x,
-        deltaY = center.y-y,
-        angle = (Math.atan2(deltaY, deltaX) - Math.PI/4) * (180 / Math.PI)
-      return angle
-    }
+    const transform = getTransformation()
 
     const handleMove = (nextAngle, trackingAngle) => {
       if (Math.abs(nextAngle - trackingAngle) < 10) return
@@ -303,10 +285,11 @@ class SketchView {
 
     const mousedown = (event) => {
       event.preventDefault()
+      const center = centerOf(picker)
       document.addEventListener('mousemove', mousemove)
       document.addEventListener('mouseup', mouseup)
 
-      moveControls.addLock(pickerId)
+      this.moveControls.addLock(pickerId)
 
       const coordinates = getCoordinates(event, identifier)
       startingAngle = getAngle(coordinates, center)
@@ -314,6 +297,7 @@ class SketchView {
     }
 
     const mousemove = (event) => {
+      const center = centerOf(picker)
       const coordinates = getCoordinates(event, identifier)
       const nextAngle = getAngle(coordinates, center) - startingAngle
 
@@ -329,21 +313,22 @@ class SketchView {
       document.removeEventListener('mousemove', mousemove)
       picker.style['cursor'] = 'grab'
 
-      moveControls.removeLock(pickerId)
+      this.moveControls.removeLock(pickerId)
       identifier = null
     }
 
     const touchDown = (event) => {
       event.preventDefault()
+      const center = centerOf(picker)
       document.addEventListener('touchmove', touchMove)
       document.addEventListener('touchend', touchUp)
 
-      moveControls.addLock(pickerId)
+      this.moveControls.addLock(pickerId)
 
       identifier = event.changedTouches[0].identifier
 
-      const { x, y } = getCoordinates(event, identifier)
-      startingAngle = rotate(x, y)
+      const coordinates = getCoordinates(event, identifier)
+      startingAngle = getAngle(coordinates, center)
       trackingAngle = startingAngle
     }
 
@@ -353,6 +338,7 @@ class SketchView {
       const grabberTouches = touchesForElementId(event, pickerId+'_grabber')
       if (identifier && touches.length === 0) return
       if (identifier && grabberTouches.length === 0 && pickerTouches.length === 0) return
+      const center = centerOf(picker)
 
       const coordinates = getCoordinates(event, identifier)
       const nextAngle = getAngle(coordinates, center) - startingAngle
@@ -366,12 +352,12 @@ class SketchView {
       document.removeEventListener('touchmove', touchMove)
       document.removeEventListener('touchend', touchUp)
 
-      moveControls.removeLock(pickerId)
+      this.moveControls.removeLock(pickerId)
       identifier = null
     }
 
-    picker.style['height'] = size + 'px'
-    picker.style['width'] = size + 'px'
+    picker.style['height'] = this.proportions.knob + 'px'
+    picker.style['width'] = this.proportions.knob + 'px'
     picker.addEventListener('mousedown', mousedown)
     picker.addEventListener('touchstart', touchDown)
 
@@ -384,8 +370,8 @@ class SketchView {
 
     if (includeTouchHelper) {
       const fingerGuide = document.createElement('div')
-      fingerGuide.style['height'] = (2 * size) + 'px'
-      fingerGuide.style['width'] = (2 * size) + 'px'
+      fingerGuide.style['height'] = (SketchView.FINGER_GUIDE_RATIO * this.proportions.knob) + 'px'
+      fingerGuide.style['width'] = (SketchView.FINGER_GUIDE_RATIO * this.proportions.knob) + 'px'
       fingerGuide.style['borderRadius'] = '50%'
       fingerGuide.style['backgroundColor'] = 'rgba(0, 0, 0, .3)'
       fingerGuide.id = pickerId + '_grabber'
@@ -425,7 +411,7 @@ class SketchView {
     return element
   }
 
-  static createView(id = 'container', height = 500, width = 800, buttonText = 'Sign') {
+  static createView({ canvasHeight, canvasWidth, id = 'container', buttonText = 'Sign'} = {}) {
     const container = document.getElementById(id)
     container.style.borderStyle = 'outset'
     container.style.borderColor ='#c81b13'
@@ -440,8 +426,8 @@ class SketchView {
 
     const canvas = document.createElement('canvas')
     canvas.id = 'canvas'
-    canvas.width = width
-    canvas.height = height
+    canvas.width = canvasWidth
+    canvas.height = canvasHeight
     canvas.style.borderRadius = '1.5rem'
     canvas.style.boxShadow = 'inset 2px 2px 6px 0px rgba(0, 0, 0, 0.5)'
     canvas.style.width = '100%'
@@ -645,6 +631,17 @@ const getCoordinates = (event, identifier = null) => {
   }
 }
 
+function getTransformation() {
+  const prefs = ['t', 'WebkitT', 'MozT', 'msT', 'OT']
+  const style = document.documentElement.style
+  let p
+  for (var i = 0, len = prefs.length; i < len; i++) {
+    if ((p = prefs[i] + 'ransform') in style) return p
+  }
+
+  alert('your browser doesnot support css transforms!')
+}
+
 function randomInteger(max, min = 0) {
   return Math.floor(Math.random() * (max - min)) + min;
 }
@@ -664,8 +661,8 @@ function centerOf(element) {
 }
 
 function getAngle(p1, p2) {
-  var deltaX = p2.x-p1.x,
-  deltaY = p2.y-p1.y,
-  angle = (Math.atan2(deltaY, deltaX) - Math.PI/4) * (180 / Math.PI)
-return angle
+  const deltaX = p2.x-p1.x
+  const deltaY = p2.y-p1.y
+  const angle = (Math.atan2(deltaY, deltaX) - Math.PI/4) * (180 / Math.PI)
+  return angle
 }
